@@ -1,0 +1,10 @@
+bin/
+obj/
+app/
+.dotnet-cache/
+cache/
+.vs/
+*.log
+*.user
+*.suo
+config.json

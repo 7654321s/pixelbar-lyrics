@@ -1,0 +1,20 @@
+{
+  "encryptionMode": "none",
+  "fallbackEncryptionMode": "none",
+  "preferredApps": [
+    "limusic",
+    "ytmusic",
+    "youtube",
+    "spotify"
+  ],
+  "whitelistOnly": false,
+  "fallbackToTitle": true,
+  "convertToSimplified": true,
+  "preferTranslation": true,
+  "filterCreditLines": true,
+  "showTitleOnIntro": true,
+  "lyricOffsetMs": 350,
+  "pollIntervalMs": 150,
+  "cacheDir": "cache",
+  "logFile": "pixelbar-lyrics.log"
+}
