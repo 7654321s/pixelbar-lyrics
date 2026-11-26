@@ -67,6 +67,16 @@ public sealed class AppConfig
     public int PollIntervalMs { get; set; } = 150;
 
     /// <summary>
+    /// 是否启用本地视频字幕 HTTP 接收接口（仅监听 127.0.0.1）
+    /// </summary>
+    public bool EnableHttpApi { get; set; } = true;
+
+    /// <summary>
+    /// 本地视频字幕 HTTP 接收接口端口
+    /// </summary>
+    public int HttpPort { get; set; } = 18421;
+
+    /// <summary>
     /// 歌词缓存目录（相对路径基于程序所在目录，禁止落在 C 盘）
     /// </summary>
     public string CacheDir { get; set; } = "cache";

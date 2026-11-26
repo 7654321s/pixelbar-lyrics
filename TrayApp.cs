@@ -17,6 +17,7 @@ public sealed class TrayApp : WinForms.ApplicationContext
     private readonly WinForms.ContextMenuStrip _menu;
     private readonly WinForms.ToolStripMenuItem _trackItem;
     private readonly WinForms.ToolStripMenuItem _sourceItem;
+    private readonly WinForms.ToolStripMenuItem _apiItem;
     private readonly WinForms.ToolStripMenuItem _transItem;
     private readonly WinForms.ToolStripMenuItem _simpItem;
     private readonly WinForms.ToolStripMenuItem _filterItem;
@@ -38,6 +39,11 @@ public sealed class TrayApp : WinForms.ApplicationContext
         _menu = new WinForms.ContextMenuStrip();
         _trackItem = new WinForms.ToolStripMenuItem("等待 Limusic 播放...") { Enabled = false };
         _sourceItem = new WinForms.ToolStripMenuItem("状态: 初始化中") { Enabled = false };
+        _apiItem = new WinForms.ToolStripMenuItem(
+            _config.EnableHttpApi ? $"字幕接口: 127.0.0.1:{_config.HttpPort}" : "字幕接口: 未启用")
+        {
+            Enabled = false
+        };
 
         _transItem = new WinForms.ToolStripMenuItem("外语歌优先显示中文翻译")
         {
@@ -110,6 +116,7 @@ public sealed class TrayApp : WinForms.ApplicationContext
         [
             _trackItem,
             _sourceItem,
+            _apiItem,
             new WinForms.ToolStripSeparator(),
             _transItem,
             _simpItem,
@@ -145,6 +152,26 @@ public sealed class TrayApp : WinForms.ApplicationContext
             _notifyIcon.Text = tip.Length > 63 ? tip[..63] : tip;
         }
 
+        if (_menu.InvokeRequired)
+        {
+            try { _menu.BeginInvoke(Apply); } catch { }
+        }
+        else
+        {
+            Apply();
+        }
+    }
+
+    public void UpdateApiInfo(string apiText)
+    {
+        if (_menu.IsDisposed) return;
+        void Apply()
+        {
+            if (!_menu.IsDisposed)
+            {
+                _apiItem.Text = apiText;
+            }
+        }
         if (_menu.InvokeRequired)
         {
             try { _menu.BeginInvoke(Apply); } catch { }

@@ -310,6 +310,78 @@ internal static class Program
         CancellationTokenSource? fetchCts = null;
         string lastSentLine = string.Empty;
         DateTime lastProcessCheck = DateTime.UtcNow;
+        object hidLock = new();
+        long externalOverrideUntilTicks = 0;
+
+        bool SendScreenText(string rawText, out string screenText, string logTag = "推送")
+        {
+            screenText = FormatForScreen(rawText, config);
+            if (string.IsNullOrWhiteSpace(screenText))
+            {
+                return false;
+            }
+
+            lock (hidLock)
+            {
+                if (string.Equals(screenText, lastSentLine, StringComparison.Ordinal))
+                {
+                    return true;
+                }
+
+                if (hid.SendLyricLine(screenText, out _))
+                {
+                    lastSentLine = screenText;
+                    Log($"[{logTag}] {screenText}");
+                    return true;
+                }
+                return false;
+            }
+        }
+
+        using LocalSubtitleServer? httpServer = config.EnableHttpApi
+            ? new LocalSubtitleServer(
+                config.HttpPort,
+                onPushText: (rawText, source, ttlMs) =>
+                {
+                    if (tray != null && tray.IsPaused)
+                    {
+                        string preview = FormatForScreen(rawText, config);
+                        return new ExternalTextResult(false, false, preview);
+                    }
+
+                    Interlocked.Exchange(ref externalOverrideUntilTicks, DateTime.UtcNow.AddMilliseconds(ttlMs).Ticks);
+                    bool sent = SendScreenText(rawText, out string screenText, $"字幕:{source}");
+                    tray?.UpdateStatus($"外部字幕 ({source})", $"接口: 127.0.0.1:{config.HttpPort}");
+                    return new ExternalTextResult(true, sent, screenText);
+                },
+                onClear: () =>
+                {
+                    Interlocked.Exchange(ref externalOverrideUntilTicks, 0);
+                    lock (hidLock)
+                    {
+                        lastSentLine = string.Empty;
+                    }
+                    Log("[字幕] 收到清除指令，恢复音乐歌词监听。");
+                },
+                getStatus: () =>
+                {
+                    bool active = DateTime.UtcNow.Ticks < Interlocked.Read(ref externalOverrideUntilTicks);
+                    string last;
+                    lock (hidLock) { last = lastSentLine; }
+                    return new ServerStatusSnapshot(hid.IsConnected, tray?.IsPaused ?? false, active, last);
+                },
+                Log)
+            : null;
+
+        if (httpServer != null)
+        {
+            bool started = httpServer.Start();
+            tray?.UpdateApiInfo(started ? $"字幕接口: 127.0.0.1:{config.HttpPort}" : "字幕接口: 启动失败");
+        }
+        else
+        {
+            tray?.UpdateApiInfo("字幕接口: 未启用");
+        }
 
         while (!cts.IsCancellationRequested)
         {
@@ -327,7 +399,17 @@ internal static class Program
 
                 if (consumeForceRefresh != null && consumeForceRefresh())
                 {
-                    lastSentLine = string.Empty;
+                    lock (hidLock)
+                    {
+                        lastSentLine = string.Empty;
+                    }
+                }
+
+                // 外部视频字幕接管期间，暂不让 SMTC 覆盖屏幕
+                if (DateTime.UtcNow.Ticks < Interlocked.Read(ref externalOverrideUntilTicks))
+                {
+                    await Task.Delay(config.PollIntervalMs, cts.Token);
+                    continue;
                 }
 
                 MediaSnapshot? snap = await smtc.GetActiveSnapshotAsync();
@@ -341,7 +423,10 @@ internal static class Program
                 if (!string.Equals(trackKey, currentTrackKey, StringComparison.Ordinal))
                 {
                     currentTrackKey = trackKey;
-                    lastSentLine = string.Empty;
+                    lock (hidLock)
+                    {
+                        lastSentLine = string.Empty;
+                    }
                     currentTimeline = null;
 
                     (string cleanTitle, string cleanArtist) = LyricsFetcher.NormalizeTrackInfo(snap.Title, snap.Artist);
@@ -401,15 +486,7 @@ internal static class Program
 
                     if (!string.IsNullOrWhiteSpace(chosen))
                     {
-                        string screenText = FormatForScreen(chosen, config);
-                        if (!string.IsNullOrWhiteSpace(screenText) && !string.Equals(screenText, lastSentLine, StringComparison.Ordinal))
-                        {
-                            if (hid.SendLyricLine(screenText, out _))
-                            {
-                                lastSentLine = screenText;
-                                Log($"[推送] ({pos:F1}s) {screenText}");
-                            }
-                        }
+                        SendScreenText(chosen, out _, $"推送 ({pos:F1}s)");
                     }
                 }
             }

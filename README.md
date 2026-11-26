@@ -1,14 +1,15 @@
 # PixelBarLyrics
 
-PixelBarLyrics 是用于漫步者花再 Halo PixelBar（`VID 0x2D99`，`PID 0xA160`）的 Windows 歌词同步工具。它通过 Windows 系统媒体控制（SMTC）读取 Limusic、YouTube Music 客户端和 Spotify 等播放器的曲目与进度，再经 USB HID 接口将歌词实时推送到音响正面屏幕。
+PixelBarLyrics 是用于漫步者花再 Halo PixelBar（`VID 0x2D99`，`PID 0xA160`）的 Windows 歌词与视频字幕同步工具。它通过 Windows 系统媒体控制（SMTC）读取 Limusic、YouTube Music 客户端和 Spotify 等播放器的曲目与进度，并提供本地 HTTP 接口接收网页和本地视频播放器的软字幕，再经 USB HID 接口推送到音响正面屏幕。
 
 ## 功能说明
 
 - **通用媒体监听**：读取 Windows SMTC 会话，支持不开放本地歌词接口的桌面和网页播放器。
 - **双词源与翻译合并**：按歌名、歌手和时长从 LRCLIB 与网易云音乐匹配 LRC 时间轴。外语歌曲支持优先显示网易云 `tlyric` 中文翻译。
 - **长标题清洗**：自动去掉 YouTube 标题中的 `Official Video`、`【...】` 和 `『...』` 等装饰文字，支持按主歌手和副标题拆词重搜。
-- **繁简转换**：调用 Windows 系统 API 将繁体中文歌词转为简体，遇到含日文假名的行自动跳过。
+- **繁简转换**：调用 Windows 系统 API 将繁体中文转为简体，遇到含日文假名的行自动跳过。
 - **元信息过滤与前奏显示**：过滤“作词”“作曲”“编曲”等制作人员行，切歌和前奏期间先显示干净的“歌名 - 歌手”。
+- **本地视频字幕接口**：内置仅监听 `127.0.0.1` 的 HTTP 服务，可接收浏览器油猴脚本或 MPV 播放器发来的视频软字幕。
 - **后台与硬件共存**：以共享读写方式打开 USB HID 控制端点，可与官方 EDIFIER TempoHub 同时运行，不占用设备，也不修改官方程序。
 - **系统托盘控制**：提供右下角托盘图标，支持切换中文翻译、繁简转换、元信息过滤、微调时间偏移和暂停推送。
 
@@ -26,7 +27,7 @@ PixelBarLyrics 是用于漫步者花再 Halo PixelBar（`VID 0x2D99`，`PID 0xA1
 dotnet publish -c Release -o app
 ```
 
-发布后直接运行 `app\PixelBarLyrics.exe`，程序会驻留在右下角托盘并自动监听音乐播放。
+发布后直接运行 `app\PixelBarLyrics.exe`，程序会驻留在右下角托盘并自动监听音乐播放和本地字幕接口。
 
 ### 命令行参数
 
@@ -56,8 +57,45 @@ dotnet publish -c Release -o app
 | `showTitleOnIntro` | `true` | 切歌和前奏空白期显示“歌名 - 歌手” |
 | `lyricOffsetMs` | `350` | 歌词时间偏移量（毫秒），正数表示提前显示 |
 | `pollIntervalMs` | `150` | 播放进度轮询间隔（毫秒） |
+| `enableHttpApi` | `true` | 是否启用本地视频字幕 HTTP 接收接口 |
+| `httpPort` | `18421` | 本地视频字幕 HTTP 接口端口 |
 
 如果你使用独立安装的 YouTube Music 客户端或 PWA，可以把 `"youtube"` 或 `"ytmusic"` 加进 `preferredApps`。普通浏览器所有标签页共用同一个进程标识，如果同时在浏览器看视频，不建议把 `"chrome"` 或 `"msedge"` 加进白名单。
+
+## 视频字幕推送
+
+不打开音乐播放器只看视频时，直接运行 `app\PixelBarLyrics.exe` 驻留托盘即可。
+
+### 本地 HTTP 接口
+
+接口仅绑定 `http://127.0.0.1:18421`，支持跨域请求和私有网络预检：
+
+- `GET /status`：返回服务状态、HID 连接状态、是否暂停和最近一次推送内容。
+- `POST /text`：推送文本到音响屏幕，支持 `text/plain` 或 JSON：
+
+```json
+{
+  "text": "这是一条测试字幕",
+  "source": "bilibili",
+  "ttlMs": 6000
+}
+```
+
+- `POST /clear`：结束外部字幕接管，立即交回音乐歌词同步。
+
+在 `ttlMs` 有效期内，音乐 SMTC 轮询会暂停覆盖屏幕。超时或收到 `/clear` 后，程序自动恢复音乐歌词同步。
+
+### YouTube 与 B 站网页脚本
+
+1. 在浏览器安装 Tampermonkey 或 Violentmonkey 扩展。
+2. 新建脚本并导入 [pixelbar-web-subtitles.user.js](integrations/pixelbar-web-subtitles.user.js)。
+3. 播放视频时打开网页播放器的 CC 软字幕，字幕会自动推送到音响屏幕。
+
+脚本只读取网页内可开关的 CC 软字幕。直接压制在视频画面里的硬字幕无法通过网页脚本读取。
+
+### MPV 本地播放器脚本
+
+将 [mpv-pixelbar-subtitles.lua](integrations/mpv-pixelbar-subtitles.lua) 复制到 MPV 的 `scripts` 目录。播放带外挂或内嵌文本字幕的视频时，当前台词会自动推送到音响屏幕。
 
 ## 协议备忘
 
